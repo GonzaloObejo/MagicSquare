@@ -14,7 +14,7 @@ magic-squares/
 ├── magic_squares/
 │   ├── verify.py        # Constante mágica y verificación de soluciones
 │   ├── cp_sat.py        # Modelo CP-SAT (OR-Tools)
-│   └── qubo.py          # Construcción de la QUBO + solver de simulated annealing
+│   └── qubo.py          # Construcción de la QUBO + dos solvers de annealing (bits / intercambios)
 ├── tests/
 │   └── test_magic_squares.py
 ├── examples/
@@ -39,8 +39,8 @@ pip install -r requirements.txt
 python -m magic_squares.cp_sat 8                 # CP-SAT, n = 8
 python -m magic_squares.cp_sat 12 --time-limit 120
 
-python -m magic_squares.qubo 3                   # QUBO + simulated annealing
-python -m magic_squares.qubo 4 --reads 500 --sweeps 50000 --A 32
+python -m magic_squares.qubo 6                   # QUBO + annealing por intercambios (defecto)
+python -m magic_squares.qubo 3 --method bitflip  # QUBO + SA genérico por bits (dwave-samplers)
 
 pytest                                           # tests
 ```
@@ -83,17 +83,33 @@ Como todas las penalizaciones son cuadrados, **E(x) ≥ 0, y E(x) = 0 si y solo 
 - Se recorren las **9! = 362 880 permutaciones** de orden 3: la energía es 0 exactamente en los 8 cuadrados mágicos y positiva en el resto.
 - La energía es 0 para cuadrados mágicos conocidos (Lo Shu, Durero) y positiva si hay valores repetidos.
 - CP-SAT encuentra soluciones válidas para n = 1, 3, 4, 5, 6, y devuelve `INFEASIBLE` para n = 2.
+- El *annealing* por intercambios resuelve n = 3–6 y lleva bien la cuenta de la energía en cada paso (ver abajo).
 
-### Resultados del *annealing* y conclusión
+### Dos formas de recorrer la misma energía
+
+**1. *Annealing* por bits** (`--method bitflip`, `solve_simulated_annealing`). Es el SA genérico de `dwave-samplers` sobre la QUBO completa y cambia un bit en cada paso, igual que un *annealer* QUBO estándar.
 
 | n | variables | resultado (200 lecturas × 10⁴ barridos) |
 |---|---|---|
 | 3 | 81 | resuelto: ≈1–3 % de las lecturas llegan a E = 0 (≈4 s) |
 | 4 | 256 | no resuelto: mejor energía ≈ 10, incluso con 5·10⁴ barridos |
 
-El peso A no cambia cuáles son las soluciones, pero sí la dificultad del *annealing*. Con A grande (≈ n⁴) el paisaje de energía se vuelve muy abrupto y no se llega a E = 0 ni siquiera para n = 3. Por defecto se usa A = 2n², que funcionó bien en las pruebas.
+El problema está en la codificación. Con *one-hot*, intercambiar dos valores entre celdas exige cambiar 4 bits, y todos los estados intermedios incumplen (a) o (b). Un *annealer* que solo cambia un bit cada vez apenas puede moverse entre soluciones válidas. El peso A no cambia cuáles son las soluciones, pero sí la dificultad. Con A ≈ n⁴ no se resuelve ni n = 3, y por eso se usa A = 2n² por defecto.
 
-La diferencia con CP-SAT se explica por la codificación. Con *one-hot*, intercambiar dos valores entre celdas exige cambiar 4 bits a la vez, y todos los estados intermedios incumplen (a) o (b). Un *annealer* que solo cambia un bit cada vez apenas puede moverse entre soluciones válidas. CP-SAT, en cambio, propaga las restricciones de forma global y resuelve n = 10 en menos de 3 s.
+**2. *Annealing* por intercambios** (`--method swap`, por defecto; `solve_swap_annealing`). Minimiza **la misma energía QUBO**, pero el estado es siempre una permutación de 1…n² y cada paso intercambia los valores de dos celdas. Las penalizaciones (a) y (b) valen 0 por construcción, así que solo queda el término de sumas (c). El cambio de energía de un intercambio se calcula en O(1) actualizando solo las sumas de las líneas afectadas, con enfriamiento geométrico y criterio de Metropolis. La idea es la misma que la de los mezcladores que conservan las restricciones (por ejemplo, el mezclador XY de QAOA) o la de los *annealers* con restricciones *one-hot* nativas.
+
+Tiempo hasta la primera solución (5 semillas, hasta 20 reinicios cada una; todas resueltas):
+
+| n | 3 | 4 | 5 | 6 | 7 | 8 | 10 |
+|---|---|---|---|---|---|---|---|
+| mediana (s) | <0,01 | 0,03 | 0,25 | 1,2 | 4,6 | 3,2 | 6,7 |
+| máximo (s) | <0,01 | 0,05 | 0,71 | 2,9 | 8,3 | 10,7 | 9,9 |
+
+Los tests comprueban que, sobre permutaciones, la energía reducida coincide exactamente con `xᵀQx + offset`. También comprueban que la energía que el algoritmo va actualizando paso a paso coincide con la recalculada desde cero.
+
+### Conclusión
+
+Con la formulación QUBO corregida, el *annealing* por bits solo resuelve n = 3. Si se conserva la estructura de permutación, el mismo modelo de energía resuelve hasta n = 10 en segundos. CP-SAT sigue siendo el más rápido y el más general (n = 12 en ~30 s, y además demuestra que n = 2 no tiene solución). La lección es que, en optimización QUBO, el modo de recorrer el espacio de soluciones importa tanto como la propia formulación.
 
 ## Autor
 

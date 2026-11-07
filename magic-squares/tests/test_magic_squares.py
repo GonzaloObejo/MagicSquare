@@ -10,6 +10,8 @@ from magic_squares.qubo import (
     direct_penalty,
     encode,
     solve_simulated_annealing,
+    solve_swap_annealing,
+    swap_energy,
 )
 from magic_squares.verify import check_magic_square, is_magic_square, magic_constant
 
@@ -103,6 +105,33 @@ def test_decode_rejects_invalid_cell():
     x[:9] = 0  # celda (0,0) sin valor
     assert decode(x, 3) is None
     assert np.array_equal(decode(encode(LO_SHU), 3), LO_SHU)
+
+
+@pytest.mark.parametrize("n", [3, 4, 5])
+def test_swap_energy_equals_qubo_energy_on_permutations(n):
+    """En permutaciones, la energía reducida del swap annealing es la energía QUBO completa."""
+    q = build_qubo(n)
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        g = (rng.permutation(n * n) + 1).reshape(n, n)
+        assert swap_energy(g) == pytest.approx(q.energy(encode(g)))
+
+
+def test_swap_annealing_incremental_energy_is_consistent():
+    """Con pocos pasos no resuelve: la energía llevada de forma incremental debe
+    coincidir con la recalculada desde cero sobre la mejor permutación."""
+    for seed in range(5):
+        grid, info = solve_swap_annealing(5, num_reads=3, num_steps=300, seed=seed)
+        best = info["best_grid"]
+        assert sorted(best.flatten().tolist()) == list(range(1, 26))
+        assert info["best_energy"] == pytest.approx(swap_energy(best))
+
+
+@pytest.mark.parametrize("n", [3, 4, 5, 6])
+def test_swap_annealing_solves(n):
+    grid, info = solve_swap_annealing(n, num_reads=20, seed=0, stop_on_success=True)
+    assert grid is not None, info
+    assert is_magic_square(grid)
 
 
 def test_qubo_simulated_annealing_n3():
