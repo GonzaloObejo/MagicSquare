@@ -1,3 +1,9 @@
+"""Ejemplo de referencia (documentación de Fixstars Amplify): Sudoku 16x16 como QUBO.
+
+Sirvió como punto de partida para la formulación del cuadrado mágico. Requiere
+`pip install amplify` y un token de Amplify en la variable AMPLIFY_TOKEN;
+no forma parte de los tests.
+"""
 import os
 from amplify import VariableGenerator, solve, one_hot, FixstarsClient
 import numpy as np
